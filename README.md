@@ -1,81 +1,42 @@
-# Test It - Prêt de livres
+## Nom et Prenom
+Zahid Abdelouahed
 
-API REST Spring Boot (Java 25) de prêt de livres pour une bibliothèque.
-**Le code est fourni : votre travail est d'écrire les tests, ce sont eux qui vous diront si tout va bien.**
+## Bugs corrigés
 
-## Le métier en 30 secondes
+1. `borrowBook` n'envoyait pas de mail au membre lors d'un emprunt : ajout de `mailService.sendMail(member, "Livre emprunté", ...)`.
+2. `findByMemberAndStatus` utilisait `OR` au lieu de `AND` : la requête renvoyait tous les livres du membre et tous les livres empruntés par n'importe qui.
+3. `BookController.createBook` mettait le titre à la place de l'auteur : `request.author` au lieu de `request.title`.
+4. `POST /books/{id}/borrow` appelait `returnBook` au lieu de `borrowBook`.
 
-Un livre passe par 3 statuts : `DISPONIBLE` → `EMPRUNTE` → `RENDU`
+## Bugs trouvés, non corrigés
 
-| Action | Autorisée si | Mails envoyés |
+1. `borrowBook` vérifie les livres `RENDU` au lieu des livres `EMPRUNTE` : un membre peut emprunter plusieurs livres en même temps.
+2. `returnBook` envoie le mail du référent au membre, donc le référent ne reçoit rien.
+3. `returnBook` ne vérifie pas que c'est bien l'emprunteur qui rend le livre.
+
+## Corrections de configuration
+
+L'application et les tests Spring ne démarraient pas à cause d'incohérences entre Liquibase et les entités :
+
+- Ajout de `constraintName` sur les clés étrangères Liquibase (`fk_members_referent`, `fk_book_borrower`).
+- `referent_id` passé de `uuid` à `bigint` (même type que `id`).
+- Colonne `user` renommée `username` (nom du champ de l'entité, et `USER` est un mot réservé SQL).
+- `@Table(name = "members")` sur `Member` (la table Liquibase s'appelle `members`).
+- `GenerationType.IDENTITY` au lieu de `SEQUENCE` sur `Book` (la table est en auto-increment).
+- `build.gradle` : ajout de l'agent Mockito (`mockitoAgent`) pour les tests.
+
+## Tests
+
+| Fichier | Type | Ce qui est testé |
 |---|---|---|
-| Emprunter | le livre est `DISPONIBLE` **et** le membre n'a pas déjà un livre `EMPRUNTE` | au membre |
-| Rendre | le livre est `EMPRUNTE` **et** c'est ce membre qui l'a emprunté | au membre, et à son bibliothécaire référent s'il en a un |
+| `BookServiceTest` | unitaire, Mockito, sans Spring ni base | emprunter un livre disponible : statut `EMPRUNTE`, emprunteur, mail envoyé |
+| `BookRepositoryIT` | `@DataJpaTest`, vraie base H2 | `findByMemberAndStatus` avec deux membres (abdel, alexi) et quatre livres (Harry Potter saisons 1 et 2) |
+| `BookServiceIT` | `@SpringBootTest`, contexte complet + H2 | emprunter puis rendre un livre, puis relire le résultat en base |
+| `BookControllerIT` | `@SpringBootTest` + MockMvc, service mocké (`@MockitoBean`) | créer un livre puis l'emprunter, et vérifier que le controller appelle le service avec les bons arguments |
 
-Sinon, le service lève une exception (`IllegalArgumentException` ou `IllegalStateException`).
+Dans `BookRepositoryIT`, chaque livre élimine une mauvaise réponse :
+- saison 1 empruntée par abdel : seul résultat attendu,
+- saison 2 rendue par abdel : même membre, autre statut,
+- saison 1 empruntée par alexi : même statut, autre membre,
+- saison 2 disponible : aucun emprunteur.
 
-## Où est le code ?
-
-```
-controller/BookController     endpoints REST
-service/BookService           règles métier (c'est le cœur du TD)
-repository/BookRepository     accès base (JPA)
-adapter/mail                  envoi de mails (fake : il écrit dans les logs)
-adapter/member                membre connecté (fake : on choisit qui avec setCurrent)
-```
-
-## API
-
-| Méthode | URL | Rôle |
-|---|---|---|
-| GET | `/books` | tous les livres |
-| GET | `/books/{id}` | un livre (404 si absent) |
-| GET | `/books/member/{memberId}` | livres d'un membre |
-| POST | `/books` | créer `{title, author}`, les deux obligatoires (400 sinon) |
-| PUT | `/books/{id}` | modifier (404 si absent) |
-| DELETE | `/books/{id}` | supprimer |
-| POST | `/books/{id}/borrow` | emprunter (400 si refusé) |
-| POST | `/books/{id}/return` | rendre (400 si refusé) |
-
-## Lancer
-
-```
-./gradlew test      # lance vos tests
-./gradlew bootRun   # lance l'application sur http://localhost:8080
-```
-
-Base H2 en mémoire, console sur http://localhost:8080/h2-console
-
-## Le TD
-
-Écrivez les tests dans `src/test/java/com/example/testit/`, un fichier par exercice.
-**Minimum attendu : 1 test par exercice.** Si vous avez du temps, ajoutez-en.
-
-| # | Fichier | Type | Test minimum |
-|---|---|---|---|
-| 1 | `BookServiceTest` | unitaire, tout est mocké (Mockito), sans Spring ni base | Emprunter un livre disponible : vérifiez le statut, l'emprunteur **et les mails envoyés** |
-| 2 | `BookRepositoryIT` | JPA, vraie base H2 | `findByMemberAndStatus` avec **deux membres** et plusieurs livres |
-| 3 | `BookServiceIT` | contexte Spring complet, vraie base | Emprunter puis rendre un livre, et relire le résultat |
-| 4 | `BookControllerIT` | MockMvc | Créer un livre puis l'emprunter, et vérifier les réponses |
-
-Un test qui échoue n'est pas un problème : c'est **ce que vous cherchez**. Notez ce qu'il révèle (le code ou le test ?) puis corrigez.
-
-## Bonus (si vous avez fini)
-
-Dans l'ordre que vous voulez, un test par idée :
-
-- **Cas d'erreur du service** : livre ou membre inconnu, livre déjà emprunté, membre qui a déjà un livre en cours.
-- **Retour d'un livre** : par un autre membre que l'emprunteur, et avec ou sans référent (qui doit être prévenu ?).
-- **Modifier un livre** (`PUT`) qui est déjà emprunté : que devient son statut ?
-- **Supprimer** un livre qui n'existe pas.
-- **Personne n'est connecté** et on emprunte un livre : que se passe-t-il ?
-- **Validation** : `POST /books` avec un titre ou un auteur vide.
-- **TDD** : écrivez le test d'abord, regardez-le échouer, puis corrigez le code.
-- **Fake plutôt que mock** : remplacez le mock de `MailService` par un fake qui garde les mails envoyés dans une liste.
-
-## Conseils
-
-- Nommez vos tests comme des phrases : `refuseLEmpruntSiLeLivreEstDejaEmprunte`.
-- Un test = un comportement. Structure *Given / When / Then*.
-- Un test que vous n'avez jamais vu échouer ne prouve rien : cassez volontairement le service pour vérifier qu'il devient rouge.
-- Ne testez pas vos mocks : testez une décision du code (un `if`, un calcul, un appel ou un non-appel).

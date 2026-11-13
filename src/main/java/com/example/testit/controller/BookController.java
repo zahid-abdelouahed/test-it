@@ -41,7 +41,7 @@ public class BookController {
 
     @PostMapping
     public Book createBook(@Valid @RequestBody BookRequest request) {
-        return bookService.createBook(request.title, request.title);
+        return bookService.createBook(request.title, request.author);
     }
 
     @PutMapping("/{id}")
@@ -65,7 +65,7 @@ public class BookController {
         Long memberId = currentMemberService.getCurrentMemberId()
                 .orElseThrow(() -> new IllegalStateException("Member not authenticated"));
         try {
-            return ResponseEntity.ok(bookService.returnBook(id, memberId));
+            return ResponseEntity.ok(bookService.borrowBook(id, memberId));
         } catch (IllegalArgumentException | IllegalStateException e) {
             return ResponseEntity.badRequest().body(null);
         }
